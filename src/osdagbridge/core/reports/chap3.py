@@ -3,10 +3,19 @@
 # Extracted from report_generator.py — DO NOT add business logic here.
 # =============================================================================
 
+import re
+
 from osdagbridge.core.utils.common import (
-    KEY_CARRIAGEWAY_WIDTH,
+    KEY_LL_CUSTOM_VEHICLES,
+    KEY_LL_IRC_CLASS_A,
+    KEY_LL_IRC_AA_WHEELED,
+    KEY_LL_IRC_AA_TRACKED,
+    KEY_LL_IRC_70R_WHEELED,
+    KEY_LL_IRC_70R_TRACKED,
+    KEY_LL_IRC_70R_BOGIE,
+    KEY_LL_IRC_CLASS_SV,
+    KEY_LL_IRC_CLASS_FATIGUE,
     KEY_FOOTPATH,
-    KEY_INCLUDE_MEDIAN,
     KEY_TS_FOOTPATH_WIDTH,
     KEY_CB_LOAD,
     KEY_LL_FOOTPATH_PRESSURE_MODE,
@@ -52,29 +61,42 @@ from osdagbridge.core.utils.codes.keyfile import kN
 from osdagbridge.core.reports.report_utils import _tex, _render_value
 from osdagbridge.core.reports.styles import make_longtable
 
-# vehicle key in IRC6_2017.table_6A -> (label, geometry method)
-_ANALYSED_VEHICLES = {
-    "ClassA":   ("Class A",            "cl_204_1_ClassA_vehicle"),
-    "Class70R": ("Class 70R (Wheeled)", "cl_204_1_Class70R_vehicle_wheel"),
-}
+# (UI check box key, label, name used in the analysis load cases, geometry method)
+_UI_VEHICLES = [
+    (KEY_LL_IRC_CLASS_A,       "Class A",             "ClassA",   "cl_204_1_ClassA_vehicle"),
+    (KEY_LL_IRC_AA_WHEELED,    "Class AA (Wheeled)",  None, None),
+    (KEY_LL_IRC_AA_TRACKED,    "Class AA (Tracked)",  None, None),
+    (KEY_LL_IRC_70R_WHEELED,   "Class 70R (Wheeled)", "Class70R", "cl_204_1_Class70R_vehicle_wheel"),
+    (KEY_LL_IRC_70R_TRACKED,   "Class 70R (Tracked)", None, None),
+    (KEY_LL_IRC_70R_BOGIE,     "Class 70R (Bogie)",   None, None),
+    (KEY_LL_IRC_CLASS_SV,      "Class SV",            None, None),
+    (KEY_LL_IRC_CLASS_FATIGUE, "Class Fatigue",       None, None),
+]
 
 
-def _live_load_tables(input_dict):
+def _analysed_vehicles(output_dict):
+    """Vehicle names in the analysed load cases, e.g. 'Case2 1xClassA + 1xClass70R'."""
+    per_girder = ((output_dict or {}).get("design_results") or {}).get("per_girder") or {}
+    found = set()
+    for girder in per_girder.values():
+        for case in (girder.get("per_lc") or {}):
+            if re.match(r"Case\d+ ", str(case)):
+                found.update(re.findall(r"\d+x(\w+)", str(case)))
+    return found
+
+
+def _live_load_tables(input_dict, output_dict):
     """Vehicle and footpath live load tables.
 
-    Vehicles are those the analysis places: IRC 6 Table 6A for the carriageway
-    width (analyser.vehicle_lane_coordinates), not the UI check boxes.
+    One row per vehicle selected in the UI Loading tab. Values are given only
+    for vehicles found in the analysis results.
     """
-    # With a median the analysis adds both carriageways; the input is per side.
-    vehicles = []
-    try:
-        width = float(input_dict.get(KEY_CARRIAGEWAY_WIDTH))
-        if str(input_dict.get(KEY_INCLUDE_MEDIAN, "")).strip().lower() in ("yes", "true", "1"):
-            width *= 2
-        for combo in IRC6_2017.table_6A(width)["vehicle_combinations"]:
-            vehicles += [v for v in combo if v not in vehicles]
-    except (TypeError, ValueError):
-        pass
+    analysed = _analysed_vehicles(output_dict)
+    selected = [v for v in _UI_VEHICLES if input_dict.get(v[0])]
+    for custom_vehicle in input_dict.get(KEY_LL_CUSTOM_VEHICLES) or []:
+        name = custom_vehicle.get("name") if isinstance(custom_vehicle, dict) else custom_vehicle
+        if name:
+            selected.append((None, str(name), None, None))
 
     # The analysis applies one dynamic factor (Cl. 208.3) to every vehicle case.
     try:
@@ -82,24 +104,38 @@ def _live_load_tables(input_dict):
     except Exception:
         impact = "N/A"
 
-    rows = []
-    for v in vehicles:
-        label, method = _ANALYSED_VEHICLES.get(v, (v, None))
-        axles = [w / kN for w in getattr(IRC6_2017, method)()["wheel_loads"]] if method else []
-        # Braking and centrifugal loads are not part of the analysis.
-        rows.append([
-            _tex(label), f"{sum(axles):.1f}" if axles else "N/A",
-            ", ".join(f"{w:.1f}" for w in axles) or "N/A",
-            impact, "No", "N/A", "N/A", "N/A"])
+    rows, skipped = [], False
+    for _, label, name, method in selected:
+        if name in analysed:
+            total = sum(getattr(IRC6_2017, method)()["wheel_loads"]) / kN
+            # Braking load is not part of the analysis.
+            rows.append([_tex(label), f"{total:.1f}", impact, "No", "N/A", "N/A"])
+        elif not analysed:
+            rows.append([_tex(label)] + ["N/A"] * 5)
+        else:
+            skipped = True
+            rows.append([_tex(label), r"\multicolumn{5}{c|}{Not analysed\textsuperscript{\dag}}"])
     if not rows:
-        rows = [["N/A"] * 8]
+        rows = [[r"\multicolumn{6}{|c|}{No vehicle selected}"]]
     vehicle_table = make_longtable(
-        None, rows, "L2.1 C1.5 L2.7 C1.7 C2.9 C1.6 C3.0 C2.8",
-        caption="Vehicle Live Loads", font="table_dense", head=(
-            r"\rowcolor{osdagHeader} & & & & \multicolumn{3}{c|}{\textbf{Braking Load}} & \\" "\n"
+        None, rows, "L3.2 C2.2 C2.2 C2.6 C2.2 C2.8",
+        caption="Vehicle Live Loads", head=(
+            r"\rowcolor{osdagHeader} & & & \multicolumn{3}{c|}{\textbf{Braking Load}} \\" "\n"
             r"\rowcolor{osdagHeader} \textbf{Vehicle} & \textbf{Total Load (kN)}"
-            r" & \textbf{Axle Loads (kN)} & \textbf{Impact Factor} & \textbf{Considered?}"
-            r" & \textbf{Value (kN)} & \textbf{Eccentricity (m)} & \textbf{Centrifugal (kN)} \\"))
+            r" & \textbf{Impact Factor} & \textbf{Considered?}"
+            r" & \textbf{Value (kN)} & \textbf{Eccentricity (m)} \\"))
+    notes = []
+    if skipped:
+        notes.append(r"\textsuperscript{\dag}Selected in the Loading tab, but no load case "
+                     r"for this vehicle exists in the analysis results.")
+    selected_names = {name for _, _, name, _ in selected}
+    unselected = [label for _, label, name, _ in _UI_VEHICLES if name in analysed - selected_names]
+    if unselected:
+        notes.append("Analysed although not selected: " + _tex(", ".join(unselected)) + ".")
+    notes.append("Impact factor: IRC 6 Cl. 208.3 value applied by the analysis to all vehicles. "
+                 "Braking (Cl. 211) and centrifugal (Cl. 212) loads are not included in the "
+                 "analysis. N/A = not available.")
+    vehicle_table += r"\noindent\textit{Note: " + " ".join(notes) + "}\n"
 
     mode = str(input_dict.get(KEY_LL_FOOTPATH_PRESSURE_MODE) or "").strip()
     custom = input_dict.get(KEY_LL_FOOTPATH_PRESSURE_VALUE)
@@ -122,8 +158,8 @@ def _live_load_tables(input_dict):
     return vehicle_table, footpath_table
 
 
-def ch3_loads(input_dict):
-    vehicle_table, footpath_table = _live_load_tables(input_dict)
+def ch3_loads(input_dict, output_dict):
+    vehicle_table, footpath_table = _live_load_tables(input_dict, output_dict)
 
     # Vz / Pz — prefer stored computed values; fall back to IRC6 Table 12
     vz_val = input_dict.get(KEY_WL_HOURLY_MEAN_WIND)
@@ -277,7 +313,6 @@ This section summarizes all loads applied to the bridge and the load combination
     caption=r"Dead Load for Surfacing (DW)") + r"""
 
 """ + vehicle_table + r"""
-\noindent\textit{Note: Vehicles are those placed in the analysis (IRC 6 Table 6A for this carriageway). Axle loads per IRC 6 Cl. 204.1; the impact factor is the Cl. 208.3 value the analysis applies to all vehicles. Braking (Cl. 211) and centrifugal (Cl. 212) loads are not included in the analysis; N/A = value not available.}
 """ + footpath_table + r"""
 
 """ + make_longtable(

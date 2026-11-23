@@ -853,7 +853,7 @@ def generate_report(payload, request):
             doc_parts.append(ch2_input_parameters(payload.metadata, payload.inputs, payload.output_dict))
 
             if 'loads' in secs:
-                doc_parts.append(ch3_loads(payload.inputs))
+                doc_parts.append(ch3_loads(payload.inputs, payload.output_dict))
             if 'analysis' in secs:
                 doc_parts.append(ch4_analysis(payload.analysis_summary, fig_paths, bridge, span_m))
             if 'design_checks' in secs:

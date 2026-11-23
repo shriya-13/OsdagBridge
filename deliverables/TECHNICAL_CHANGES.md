@@ -4,7 +4,7 @@
 - **Styles:** all page, font, colour, table, header/footer and figure settings moved to `styles.py`.
 - **Tables:** every table goes through `make_longtable`. It repeats the header on each page, adds "continued" lines, scales columns to the text width, and keeps row groups together.
 - **Footer:** `includeheadfoot` plus reserved `footskip`; the default-value note is part of the footer instead of being raised with negative space. `\Needspace` is sized to heading, caption, header and first group. A coordinate check found one page with a row in the footer before, and none after.
-- **Chapter 3:** separate vehicle table (laid out as the spec's example, plus axle loads and centrifugal) and footpath table (with a unit column).
+- **Chapter 3:** separate vehicle table (the spec's two-level layout: Vehicle, Total Load, Impact Factor, Braking Considered / Value / Eccentricity) and footpath table (with a unit column). One row per vehicle selected in the Loading tab. Analysed vehicles are identified from the load cases in the results; the others read "Not analysed" with a footnote.
 - **Section 5.5:** four UR charts with a red dashed UR = 1.0 line, read from the summary table cells.
 - **Chapter 7:** steel tonnage chart, and concrete / reinforcement charts, read from the bill of materials values.
 - **LaTeX errors:** the baseline .tex produced 140 error lines, mainly a missing `\\` after captions; now 0.
@@ -44,7 +44,7 @@ Sections 5.4 and 5.5 printed cross bracing numbers as end diaphragm results. The
 ## Known issues outside the report scope
 - **Zero `Vz_i`:** exactly 0 in all interior edge elements, at both supports, for 0 deg skew (3, 4, 5 and 7 girders). Looks like an analysis bug.
 - **Skew:** deflections, load-case summary and most per-girder results are missing for a skewed bridge (edge nodes matched by equal x).
-- **Vehicles:** the analysis uses Table 6A (Class A, 70R) and ignores the UI check boxes, so Chapter 3 lists the analysed vehicles.
+- **Vehicles:** the analysis uses Table 6A (Class A, 70R) and ignores the UI check boxes. Chapter 3 therefore marks selected but unanalysed vehicles "Not analysed", and names any analysed vehicle that was not selected.
 - **Braking and centrifugal:** not analysed, shown N/A. `cl_211_2_braking_force` raises an error for the lane counts tried.
 - **End diaphragm steel:** not in the quantity take-off, shown N/A.
 

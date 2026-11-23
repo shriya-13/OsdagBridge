@@ -14,7 +14,7 @@
 ## Known issues outside the report scope (not changed)
 1. Zero skew: `Vz_i` is exactly 0 for every interior start and end edge element in all load cases (0 deg runs: 7, 5, 4 and 3 girders), so the end diaphragm design returns no members and the report shows N/A. This looks like an analysis bug. 10 deg skew gives results.
 2. Any skew: with 5, 10 and -10 deg the deflection and load-case summaries are empty and `per_girder` holds one girder. `build_girders` (`analysis_results.py`) selects edge nodes by `x == min_x`, which fails on a skewed edge. Chapter 4 and the deflection tables are therefore incomplete in the 10 deg reports; the `_skew0` pair is complete there.
-3. Vehicles: the analysis places Class A and 70R from IRC 6 Table 6A and does not use the UI check boxes. Chapter 3 lists the analysed vehicles, as decided, so it can differ from the UI selection.
+3. Vehicles: the analysis places Class A and 70R from IRC 6 Table 6A and does not use the UI check boxes. Chapter 3 has one row per vehicle selected in the Loading tab; a selected vehicle with no load case in the results reads "Not analysed" with a footnote, and a vehicle analysed but not selected is named in the note.
 4. `IRC6_2017.cl_211_2_braking_force` raises `UnboundLocalError` for every lane count tried (1 to 4).
 5. Cross bracing 5.5 demand is capacity x UR, and Osdag's compression UR differs from demand / capacity (5.656 / 16.28 = 0.35 vs 0.52). Left as found; end diaphragm rows print the analysed force and Osdag's UR.
 6. Girder dimensions in Table 2.7 are metres labelled mm.
@@ -27,7 +27,9 @@
 ## Interpretations and other changes
 - The generator used no PyLaTeX. Chapters build LaTeX strings, so `make_longtable` returns a string and `apply_document_styles` appends to a list; figures use PyLaTeX `Figure`.
 - Table rows keep `\multirow` groups on one page.
-- Chapter 3 tests used carriageways 4.25 m (Class A), 7.5 m and 10.5 m (Class A + 70R). These change the report listing only and reuse the stored design.
+- Chapter 3 analysed vehicles are read from the `CaseN` load case names in `design_results["per_girder"][G]["per_lc"]`. Total load is the IRC 6 axle sum for that vehicle; the impact factor is recomputed with the Cl. 208.3 function the analysis uses, as the results do not store it.
+- Chapter 3 columns follow the spec's example, so the earlier axle load and centrifugal columns were dropped; the note says braking and centrifugal loads are not analysed. The UI eccentricity (1.2 m) is not printed because no braking load is applied.
+- Chapter 3 tests: UI selections all 8, Class A + SV, 70R Wheeled only, and none (`--vehicles`). They change the reported selection only and reuse the stored design.
 - Removed a permanently blank "Reactions at Supports" table in Chapter 4; reactions are in Table 4.1.
 - Concrete vs reinforcement uses two panels (allowed by the task).
 - Deck "Transverse Shear" has no value in the sample, so it has no bar.
