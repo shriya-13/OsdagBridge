@@ -510,6 +510,58 @@ class ReportDataBridge:
         except Exception:
             return ""
 
+    # --- Source-specific details (overridden for end diaphragms) ---
+
+    def get_effective_length(self, pair: str, member: str) -> str:
+        return self.get_cb_effective_length(member)
+
+    def chord_enabled(self, pair: str, which: str) -> bool:
+        return bool(self.output_dict.get(
+            f"member_properties.cross_bracing_details.{which}_chord", True))
+
+    def section_property(self, pair: str, member: str, name: str):
+        pid = pair.replace("-", "")
+        base = "transverse_member_design.cb.section_properties"
+        groups = ("bracing",) if member == "diagonal" else ("bottom_chord", "top_chord")
+        for grp in groups:
+            val = self.output_dict.get(f"{base}.{grp}.{pid}.{name}")
+            if val is not None:
+                return val
+        return None
+
+
+class EndDiaphragmDataBridge(ReportDataBridge):
+    """Same getters as cross bracing, reading the end diaphragm results."""
+
+    def _cb_forces_dict(self) -> dict:
+        return self.output_dict.get("end_diaphragm_forces_dict") or {}
+
+    def _cb_pair_designs(self) -> dict:
+        return self.output_dict.get("end_diaphragm_design_results") or {}
+
+    def get_effective_length(self, pair: str, member: str) -> str:
+        try:
+            raw = self._cb_pair_designs()[pair][member]["compression"]
+            return f"{float(raw['KEY_EFFECTIVE_LENGTH']):.0f}"
+        except (KeyError, TypeError, ValueError):
+            return ""
+
+    def chord_enabled(self, pair: str, which: str) -> bool:
+        pid = pair.replace("-", "")
+        return bool(self.output_dict.get(
+            f"member_properties.end_diaphragm_details.{pid}.{which}_chord", True))
+
+    def section_property(self, pair: str, member: str, name: str):
+        pid = pair.replace("-", "")
+        base = "transverse_member_design.ed.section_properties"
+        groups = ("end_diaphragm",) if member == "diagonal" else ("bottom_chord", "top_chord")
+        for grp in groups:
+            val = self.output_dict.get(f"{base}.{grp}.{pid}.{name}")
+            if val is not None:
+                return val
+        return None
+
+
 def _format_project_location(pl_data):
     if not pl_data:
         return ''
@@ -776,6 +828,10 @@ def generate_report(payload, request):
             quantities = calculate_material_quantities(payload.inputs, payload.output_dict)
             payload.inputs.update(quantities)
 
+            # Charts live in tmp_dir, so they exist until compilation ends
+            chart_dir = os.path.join(tmp_dir, 'charts')
+            os.makedirs(chart_dir, exist_ok=True)
+
             # ── Assemble LaTeX document (fig_paths now has tmp_dir paths) ──
             bridge = ReportDataBridge(payload.output_dict, payload.inputs, payload)
             span_m = float(payload.inputs.get(KEY_SPAN, 0) or 0)
@@ -801,7 +857,10 @@ def generate_report(payload, request):
             if 'analysis' in secs:
                 doc_parts.append(ch4_analysis(payload.analysis_summary, fig_paths, bridge, span_m))
             if 'design_checks' in secs:
-                doc_parts.append(ch5_design_checks(payload.design_checks, bridge))
+                doc_parts.append(ch5_design_checks(
+                    payload.design_checks, bridge,
+                    EndDiaphragmDataBridge(payload.output_dict, payload.inputs, payload),
+                    chart_dir))
             if 'drawings' in secs and payload.options.include_figures:
                 doc_parts.append(ch6_drawings(fig_paths))
 

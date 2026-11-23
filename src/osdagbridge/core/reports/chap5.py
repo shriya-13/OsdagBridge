@@ -3,6 +3,8 @@
 # Extracted from report_generator.py — DO NOT add business logic here.
 # =============================================================================
 from __future__ import annotations
+import os
+import re
 from typing import TYPE_CHECKING
 
 from osdagbridge.core.utils.common import (
@@ -142,11 +144,96 @@ from osdagbridge.core.utils.common import (
 )
 
 from osdagbridge.core.reports.report_utils import _tex, _render_value, get_girder_entries
+from osdagbridge.core.reports.charts import figure_latex, plot_ur
 from osdagbridge.core.reports.styles import make_longtable
 
 if TYPE_CHECKING:
     pass
-def ch5_design_checks(checks_data, bridge) -> str:
+def _na(value):
+    return value if value not in (None, "") else "N/A"
+
+
+def _bracing_rows(src):
+    """Rows for the section, slenderness and capacity tables of one bracing source."""
+    na_row = "%s" "N/A \\\\\n\\hline"
+    pairs = src.get_cb_pairs()
+    if not pairs:
+        return tuple(na_row % ("N/A & " * n) for n in (5, 5, 7))
+
+    def limit_status(value, limit):
+        try:
+            return r"\statuspass{PASS}" if float(value) <= limit else r"\statusfail{FAIL}"
+        except (ValueError, TypeError):
+            return "N/A"
+
+    def group(pair, rows, ncols):
+        first = r"\multirow{%d}{*}{\makecell{%s}} & " % (len(rows), _tex(pair))
+        sep = " \\\\\n\\cline{2-%d}\n & " % ncols
+        return first + sep.join(" & ".join(r) for r in rows) + " \\\\\n\\hline"
+
+    sections, slender, capacity = [], [], []
+    for pair in pairs:
+        sec_rows, cap_rows = [], []
+        for member, label, short in (("diagonal", "Diagonal", "Diagonal"),
+                                     ("chord", "Top / Bottom chord", "Chord")):
+            force, ftype = src.get_cb_governing_force(pair, member)
+            designed = bool(src._cb_osdag(pair, member, ftype))
+            area, rv = (src.section_property(pair, member, p) for p in ("A", "rv"))
+            sec_rows.append([
+                label, _na(src.get_cb_connection(pair, member, ftype) if designed else ""),
+                _na(src.get_cb_section(pair, member, ftype)),
+                _na(f"{float(area) * 100:.1f}" if area is not None else ""),   # cm2 -> mm2
+                _na(f"{float(rv) * 10:.1f}" if rv is not None else "")])       # cm -> mm
+            cap_rows.append([
+                short, _na(src.get_cb_section(pair, member, ftype)),
+                _na(src.get_cb_gov_lc(pair, member, ftype)), _na(force),
+                _na(src.get_cb_capacity(pair, member, ftype)),
+                _na(src.get_cb_efficiency(pair, member, ftype)),
+                _na(src.get_cb_status(pair, member, ftype))])
+        members = [("Diagonal", "diagonal", "C", 250)]
+        if src.chord_enabled(pair, "top"):
+            members.append(("Top chord", "chord", "C", 250))
+        if src.chord_enabled(pair, "bottom"):
+            members.append(("Bottom chord", "chord", "T", 400))
+        sl_rows = []
+        for label, member, nature, limit in members:
+            value = src.get_cb_slenderness(pair, member)
+            sl_rows.append([label, nature, _na(src.get_effective_length(pair, member)),
+                            _na(value), f"{limit} --- {limit_status(value, limit)}"])
+        sections.append(group(pair, sec_rows, 6))
+        slender.append(group(pair, sl_rows, 6))
+        capacity.append(group(pair, cap_rows, 8))
+    return tuple("\n".join(x) for x in (sections, slender, capacity))
+
+
+def _ur_figures(rows, chart_dir):
+    """One utilization chart per element, read from the Table 5.5 summary cells."""
+    out = []
+    for element, prefix, names in (
+            ("Steel Plate Girders", "girder", ("Girder --- ",)),
+            ("Concrete Deck Slab", "deck", ("Deck --- ", "Transverse Shear (slab)", "Crack Width (slab)")),
+            ("Cross Bracing", "bracing", ("Cross Bracing --- ",)),
+            ("End Diaphragms", "diaphragm", ("End Diaphragm --- ",))):
+        labels, urs, failed = [], [], []
+        for label, cells in rows:
+            if not label.startswith(names):
+                continue
+            match = re.search(r"\d+\.\d+", cells[3] or "")
+            if match:
+                text = label.split(" --- ")[-1].replace(" (slab)", "")
+                labels.append(text.replace(" (", "\n(").replace(" ", "\n", 1) if " " in text else text)
+                urs.append(float(match.group()))
+                failed.append("statusfail" in cells[3])
+        if not urs:
+            out.append(r"\noindent\textit{Note: no utilization data is available for "
+                       + element + "; chart omitted.}\n")
+            continue
+        path = plot_ur(element, labels, urs, os.path.join(chart_dir, f"ur_{prefix}.png"), failed)
+        out.append(figure_latex(path, f"Utilization ratios --- {element}", f"fig:ur-{prefix}"))
+    return "\n".join(out)
+
+
+def ch5_design_checks(checks_data, bridge, ed_bridge, chart_dir) -> str:
     """Chapter 5 — Design Checks.
 
     Parameters
@@ -687,117 +774,8 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
                   _defl_status(_edge_req, _edge)) + "\n\\hline"
     )
 
-    # Generate Table 5.20(a) rows
-    cb_forces_rows = []
-    pairs = bridge.get_cb_pairs()
-
-    if not pairs:
-        # fallback: one placeholder row
-        cb_forces_rows.append(
-            r"""Between Girders & Diagonal &  &  &  &  \\
-\hline"""
-        )
-    else:
-        for pair in pairs:
-            pair_id = pair.replace("-", "")
-            for member, label in [("diagonal", "Diagonal"),
-                                ("chord", "Top / Bottom chord")]:
-                force_str, ftype = bridge.get_cb_governing_force(pair, member)
-                conn_type = bridge.get_cb_connection(pair, member, ftype)
-                section  = bridge.get_cb_section(pair, member, ftype)
-
-                # Fetch properties from output_dict
-                if member == "diagonal":
-                    pfx = f"transverse_member_design.cb.section_properties.bracing.{pair_id}"
-                else:
-                    pfx = f"transverse_member_design.cb.section_properties.bottom_chord.{pair_id}"
-                    if bridge.output_dict.get(f"{pfx}.A") is None:
-                        pfx = f"transverse_member_design.cb.section_properties.top_chord.{pair_id}"
-
-                area_cm2 = bridge.output_dict.get(f"{pfx}.A")
-                rv_cm = bridge.output_dict.get(f"{pfx}.rv")
-
-                # Convert Area: cm² -> mm²
-                area_str = f"{float(area_cm2) * 100:.1f}" if area_cm2 is not None else ""
-                # Convert rv: cm -> mm
-                rmin_str = f"{float(rv_cm) * 10:.1f}" if rv_cm is not None else ""
-                cb_forces_rows.append(
-                    r"\multirow{2}{*}{\makecell{" + _tex(pair) + r"}} & "
-                    + label + r" & " + conn_type + r" & " + section
-                    + r" & " + area_str + r" & " + rmin_str
-                    + r" \\\cline{2-6}"
-                )
-            cb_forces_rows.append(r"\hline")
-    cb_forces_content = "\n".join(cb_forces_rows)
-
-    # Generate Table 5.20(b) rows
-    def get_status_str(slnd_str, limit):
-        try:
-            v = float(slnd_str)
-            return r"\statuspass{PASS}" if v <= limit else r"\statusfail{FAIL}"
-        except (ValueError, TypeError):
-            return ""
-    cb_slenderness_rows = []
-    if not pairs:
-        cb_slenderness_rows.append(
-            r"""Between Girders & Diagonal & C &  &  &  ---  \\
-\hline"""
-        )
-    else:
-        for pair in pairs:
-            kl_diag = bridge.get_cb_effective_length("diagonal")
-            slnd_diag = bridge.get_cb_slenderness(pair, "diagonal")
-            status_diag = get_status_str(slnd_diag, 250)
-            
-            kl_tc = bridge.get_cb_effective_length("chord")
-            slnd_tc = bridge.get_cb_slenderness(pair, "chord")
-            status_tc = get_status_str(slnd_tc, 250)
-            
-            kl_bc = bridge.get_cb_effective_length("chord")
-            slnd_bc = bridge.get_cb_slenderness(pair, "chord")
-            status_bc = get_status_str(slnd_bc, 400)
-            
-            top_chord_enabled = bridge.output_dict.get("member_properties.cross_bracing_details.top_chord", True)
-            bottom_chord_enabled = bridge.output_dict.get("member_properties.cross_bracing_details.bottom_chord", True)
-            
-            num_rows = 1 + int(top_chord_enabled) + int(bottom_chord_enabled)
-            row_tex = r"\multirow{" + str(num_rows) + r"}{*}{\makecell{" + _tex(pair) + r"}}"
-            row_tex += f" & Diagonal & C & {kl_diag} & {slnd_diag} & 250 --- {status_diag} \\\\"
-            
-            if top_chord_enabled:
-                row_tex += f"\n\\cline{{2-6}}\n & Top chord & C & {kl_tc} & {slnd_tc} & 250 --- {status_tc} \\\\"
-            if bottom_chord_enabled:
-                row_tex += f"\n\\cline{{2-6}}\n & Bottom chord & T & {kl_bc} & {slnd_bc} & 400 --- {status_bc} \\\\"
-                
-            row_tex += "\n\\hline"
-            cb_slenderness_rows.append(row_tex)
-    cb_slenderness_content = "\n".join(cb_slenderness_rows)
-
-    # Generate Table 5.20(c) rows
-    cb_capacity_rows = []
-    for pair in pairs:
-        rows_for_pair = []
-        for member, label in [("diagonal", "Diagonal"),
-                            ("chord", "Chord")]:
-            force_str, ftype = bridge.get_cb_governing_force(pair, member)
-            section  = bridge.get_cb_section(pair, member, ftype)
-            gov_lc   = bridge.get_cb_gov_lc(pair, member, ftype)
-            capacity = bridge.get_cb_capacity(pair, member, ftype)
-            ur       = bridge.get_cb_efficiency(pair, member, ftype)
-            status   = bridge.get_cb_status(pair, member, ftype)
-            rows_for_pair.append(
-                r" & " + label + r" & " + section
-                + r" & " + gov_lc + r" & " + force_str + r" & " + capacity
-                + r" & " + ur + r" & " + status + r" \\\cline{2-8}"
-            )
-        first = r"\multirow{2}{*}{\makecell{" + _tex(pair) + r"}}" + rows_for_pair[0]
-        rest  = rows_for_pair[1:]
-        cb_capacity_rows.append(first)
-        cb_capacity_rows.extend(rest)
-        cb_capacity_rows.append(r"\hline")
-    cb_capacity_content = "\n".join(cb_capacity_rows)
-
-
+    cb_forces_content, cb_slenderness_content, cb_capacity_content = _bracing_rows(bridge)
+    ed_forces_content, ed_slenderness_content, ed_capacity_content = _bracing_rows(ed_bridge)
 
     # ── Deck slab design value helpers (Tables 5.17 a/b/c/e/g) ────────────────
     # Read from deck_rpt = output_dict["deck_report_values"] (common.KEY_DD_*).
@@ -931,15 +909,13 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
                 _vu_522(dem, fallback_unit) or "---", _vu_522(cap, fallback_unit) or "---",
                 _ur_522(d) or "---")
 
-    # (3) Cross bracing — worst pair/member by UR for the given force type.
-    _cb_pairs_522 = bridge.get_cb_pairs()
-
-    def _cb_row(force_type):
+    # (3) Cross bracing / end diaphragm — worst pair/member by UR.
+    def _cb_row(force_type, src=bridge):
         best = None  # (ur, pair, member, capacity_str)
-        for pair in _cb_pairs_522:
+        for pair in src.get_cb_pairs():
             for member in ("diagonal", "chord"):
-                cap = bridge.get_cb_capacity(pair, member, force_type)
-                eff = bridge.get_cb_efficiency(pair, member, force_type)
+                cap = src.get_cb_capacity(pair, member, force_type)
+                eff = src.get_cb_efficiency(pair, member, force_type)
                 try:
                     ur = float(eff)
                 except (TypeError, ValueError):
@@ -947,28 +923,29 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
                 if best is None or ur > best[0]:
                     best = (ur, pair, member, cap)
         if best is None:
-            return ("---", "---", "---", "---")
+            return ("N/A", "N/A", "N/A", "N/A")
         ur, pair, member, cap = best
-        gov = bridge.get_cb_gov_lc(pair, member, force_type) or "---"
-        dem = f"{float(cap) * ur:.2f} kN" if cap else "---"
-        cap_s = (cap + " kN") if cap else "---"
-        return (gov, dem, cap_s, _ur_522(ur))
+        gov = src.get_cb_gov_lc(pair, member, force_type) or "---"
+        if src is ed_bridge:
+            force = src.get_cb_force(pair, member, force_type)
+            dem = (force + " kN") if force else "N/A"
+        else:
+            dem = f"{float(cap) * ur:.2f} kN" if cap else "---"
+        return (gov, dem, (cap + " kN") if cap else "---", _ur_522(ur))
 
-    def _cb_slender_row():
+    def _cb_slender_row(src=bridge):
         best = None  # (ratio, slend, limit)
-        for pair in _cb_pairs_522:
+        for pair in src.get_cb_pairs():
             for member in ("diagonal", "chord"):
-                s = bridge.get_cb_slenderness(pair, member)
                 try:
-                    sf = float(s)
+                    sf = float(src.get_cb_slenderness(pair, member))
                 except (TypeError, ValueError):
                     continue
                 lim = 400.0 if member == "chord" else 250.0
-                ratio = sf / lim
-                if best is None or ratio > best[0]:
-                    best = (ratio, sf, lim)
+                if best is None or sf / lim > best[0]:
+                    best = (sf / lim, sf, lim)
         if best is None:
-            return ("---", "---", "---", "---")
+            return ("N/A", "N/A", "N/A", "N/A")
         ratio, sf, lim = best
         return ("---", f"{sf:.1f}", f"{lim:.0f}", _ur_522(ratio))
 
@@ -1008,12 +985,15 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
             break
     _ed_is_cb = "brac" in _ed_type.strip().lower()
     if _ed_is_cb:
-        _ed_moment_row = _row522(r"End Diaphragm --- Moment", _cb_row("compression"))
-        _ed_shear_row  = _row522(r"End Diaphragm --- Shear",  _cb_row("tension"))
+        _ed_rows = [
+            (r"End Diaphragm --- Compression", _cb_row("compression", ed_bridge)),
+            (r"End Diaphragm --- Tension", _cb_row("tension", ed_bridge)),
+            (r"End Diaphragm --- Slenderness", _cb_slender_row(ed_bridge)),
+        ]
+        _ed_msg_rows = []
     else:
-        _ed_msg = r"Rolled / Welded section --- design to be added"
-        _ed_moment_row = _row522_msg(r"End Diaphragm --- Moment", _ed_msg)
-        _ed_shear_row  = _row522_msg(r"End Diaphragm --- Shear",  _ed_msg)
+        _ed_rows = []
+        _ed_msg_rows = [_row522_msg(r"End Diaphragm", r"Rolled / Welded section --- design to be added")]
 
     # Crack width (slab): governing crack width vs limit from the deck designer
     # (frequent SLS combination). _dk_gov_wk is the max of bottom/top/overhang wk.
@@ -1040,26 +1020,26 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
         (_ur_522(_dk_gov_wk / _wk_lim) if (_dk_has and _wk_lim > 0) else "---"),
     )
 
-    _t522 = [
-        _row522(r"Girder --- Moment",             _dcr_row({1})),
-        _row522(r"Girder --- Shear",              _dcr_row({2})),
-        _row522(r"Girder --- LTB (constr.)",      _dcr_row({5})),
-        _row522(r"Girder --- Deflection",         _dcr_row({13, 14}, fallback_unit="mm")),
-        _row522(r"Girder --- Stress",             _dcr_row({11}, fallback_unit="MPa")),
-        _row522(r"Girder --- Fatigue",            _dcr_row({8, 9}, fallback_unit="MPa")),
-        _row522(r"Transverse Shear (slab)",       _dcr_row({16})),
-        _row522(r"Crack Width (slab)",            _crack_cells),
-        _row522(r"Deck --- Flexure (sagging)",    _deck_row(KEY_DD_M_ULS_SAG, KEY_DD_MU_BOT, "kN-m/m")),
-        _row522(r"Deck --- Flexure (hogging)",    _deck_row(KEY_DD_M_ULS_HOG, KEY_DD_MU_TOP, "kN-m/m")),
-        _row522(r"Deck --- Cantilever Overhang",  _deck_row(KEY_DD_M_ULS_OH, KEY_DD_MU_OH, "kN-m/m", is_oh=True)),
-        _row522(r"Deck --- Punching Shear",       _deck_row(KEY_DD_PUNCH_VED, KEY_DD_VRD_C_MPA, "MPa")),
-        _row522(r"Deck --- One-Way Shear",        _deck_row(KEY_DD_SHEAR_VED, KEY_DD_SHEAR_VRDC, "kN/m")),
-        _row522(r"Cross Bracing --- Compression", _cb_row("compression")),
-        _row522(r"Cross Bracing --- Tension",     _cb_row("tension")),
-        _row522(r"Cross Bracing --- Slenderness", _cb_slender_row()),
-        _ed_moment_row,
-        _ed_shear_row,
-    ]
+    _summary = [
+        (r"Girder --- Moment",             _dcr_row({1})),
+        (r"Girder --- Shear",              _dcr_row({2})),
+        (r"Girder --- LTB (constr.)",      _dcr_row({5})),
+        (r"Girder --- Deflection",         _dcr_row({13, 14}, fallback_unit="mm")),
+        (r"Girder --- Stress",             _dcr_row({11}, fallback_unit="MPa")),
+        (r"Girder --- Fatigue",            _dcr_row({8, 9}, fallback_unit="MPa")),
+        (r"Transverse Shear (slab)",       _dcr_row({16})),
+        (r"Crack Width (slab)",            _crack_cells),
+        (r"Deck --- Flexure (sagging)",    _deck_row(KEY_DD_M_ULS_SAG, KEY_DD_MU_BOT, "kN-m/m")),
+        (r"Deck --- Flexure (hogging)",    _deck_row(KEY_DD_M_ULS_HOG, KEY_DD_MU_TOP, "kN-m/m")),
+        (r"Deck --- Cantilever Overhang",  _deck_row(KEY_DD_M_ULS_OH, KEY_DD_MU_OH, "kN-m/m", is_oh=True)),
+        (r"Deck --- Punching Shear",       _deck_row(KEY_DD_PUNCH_VED, KEY_DD_VRD_C_MPA, "MPa")),
+        (r"Deck --- One-Way Shear",        _deck_row(KEY_DD_SHEAR_VED, KEY_DD_SHEAR_VRDC, "kN/m")),
+        (r"Cross Bracing --- Compression", _cb_row("compression")),
+        (r"Cross Bracing --- Tension",     _cb_row("tension")),
+        (r"Cross Bracing --- Slenderness", _cb_slender_row()),
+    ] + _ed_rows
+    ur_figures = _ur_figures(_summary, chart_dir)
+    _t522 = [_row522(label, cells) for label, cells in _summary] + _ed_msg_rows
     t522_content = "\n".join(_t522)
 
     return r"""
@@ -1366,21 +1346,21 @@ End diaphragms at the supports transfer transverse loads to the bearings, restra
 \noindent
 """ + make_longtable(
     [r"Panel", r"Member", r"Connection", r"Section", r"$A_g$ (mm²)", r"$r_{min}$ (mm)"],
-    (r"""""" + cb_forces_content + r""""""),
+    (r"""""" + ed_forces_content + r""""""),
     'C2 L2 L2.2 C2.5 C2 C2',
     caption=r"End Diaphragm --- Connection and Section Properties") + r"""
 \noindent\textit{Note: $A_g$ = gross cross-sectional area; $r_{min}$ = minimum radius of gyration.}
 
 """ + make_longtable(
     [r"Panel", r"Member", r"Nature", r"Eff.\ Length $KL$ (mm)", r"$KL/r$", r"Limit / Status"],
-    (r"""""" + cb_slenderness_content + r""""""),
+    (r"""""" + ed_slenderness_content + r""""""),
     'C2.2 L2.2 L2.5 C2.5 C2.5 C3.6',
     caption=r"End Diaphragm --- Slenderness Ratio Check (IS~800 Cl.~3.8 )") + r"""
 \noindent\textit{Note:  3. Limit = 250 for compression members, 400 for tension members. $K = 1.0$ for members with both ends pinned.}
 
 """ + make_longtable(
     [r"Panel", r"Member", r"Section", r"Governing LC", r"Demand (kN)", r"Capacity (kN)", r"UR", r"Status"],
-    (r"""""" + cb_capacity_content + r""""""),
+    (r"""""" + ed_capacity_content + r""""""),
     'C2 L1.8 C2.2 C3 C1.8 C1.8 C1.2 C1.8',
     caption=r"End Diaphragm Design --- Capacity Summary") + r"""
 \noindent\textit{Note: Designed per IS 800 Cl. 7 (compression) and Cl. 6 (tension). OsdagBridge cross-bracing module used.}
@@ -1397,5 +1377,4 @@ End diaphragms at the supports transfer transverse loads to the bearings, restra
     caption=r"Overall Design Check Summary --- All Members") + r"""
 \noindent\textit{Note: UR = Demand / Capacity. All values $\leq 1.0$ indicate passing checks. The governing check for each component is highlighted in the individual design check sections above.}
 
-"""
-
+""" + ur_figures + "\n"

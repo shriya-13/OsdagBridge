@@ -29,7 +29,7 @@ FONTS = {
 
 COLORS = {
     "osdagGreen": "#91B014", "osdagHeader": "#E6EFC8", "osdagAltRow": "#F7F9EF",
-    "osdagPass": "#2E7D32", "osdagFail": "#C62828", "osdagGrid": "#9E9E9E",
+    "osdagPass": "#00897B", "osdagFail": "#B71C1C", "osdagGrid": "#9E9E9E",
     "osdagInfo": "#1565C0",
 }
 
@@ -49,15 +49,15 @@ HEADER_FOOTER = {
 FIGURE = {
     "width": r"0.85\textwidth", "embed_width": r"0.75\textwidth",
     "full_width": r"0.97\textwidth", "cell_width": r"0.31\textwidth",
-    "placeholder_width": r"0.9\textwidth", "chart_width": r"0.9\textwidth",
-    "dpi": 200, "size": (7.0, 3.4),
+    "placeholder_width": r"0.9\textwidth", "chart_width": r"0.85\textwidth",
+    "dpi": 200, "size": (7.0, 2.9),
     "rc": {"font.family": "serif", "font.size": 9, "axes.grid": True,
            "axes.grid.axis": "y", "axes.axisbelow": True,
            "grid.color": COLORS["osdagGrid"], "grid.alpha": 0.35,
            "axes.spines.top": False, "axes.spines.right": False},
     "bar_pass": COLORS["osdagPass"], "bar_fail": COLORS["osdagFail"],
     "bar_steel": COLORS["osdagGreen"], "bar_concrete": COLORS["osdagGrid"],
-    "bar_rebar": COLORS["osdagInfo"], "threshold": "red",
+    "bar_rebar": COLORS["osdagInfo"], "threshold": "red", "label_bg": "white",
 }
 
 

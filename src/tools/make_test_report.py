@@ -7,6 +7,7 @@ The design result is cached as a pickle in the output directory; --fresh reruns
 it. CAD figures need a Qt viewer, so Chapter 6 shows placeholders.
 """
 import argparse
+import os
 import pickle
 import sys
 from pathlib import Path
@@ -36,7 +37,6 @@ def sample_inputs(skew=10):
 
 def prime_materials(inp):
     """Material properties exactly as InputDock._prime_material_inputs sets them."""
-    import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
     from osdagbridge.core.utils import common as c
@@ -96,4 +96,6 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    sys.stdout.flush()
+    os._exit(code)  # skip Qt/OpenSees teardown, which can crash
