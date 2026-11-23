@@ -1,6 +1,6 @@
 """Headless report harness: design a sample bridge, then compile the report.
 
-    python src/tools/make_test_report.py [--stem NAME] [--vehicles a,b] [--out DIR] [--fresh]
+    python src/tools/make_test_report.py [--stem NAME] [--vehicles a,b] [--out DIR] [--skew DEG] [--fresh]
 
 Mirrors the GUI path (defaults -> set_input -> design -> generate_design_report).
 The design result is cached as a pickle in the output directory; --fresh reruns
@@ -21,7 +21,7 @@ VEHICLES = {
 }
 
 
-def sample_inputs():
+def sample_inputs(skew=10):
     from osdagbridge.core.bridge_types.plate_girder.defaults import (
         BASIC_INPUT_DICT, solve_extend_basic_input_dict)
     from osdagbridge.core.utils import common as c
@@ -34,7 +34,7 @@ def sample_inputs():
         c.KEY_SPAN: 30, c.KEY_CARRIAGEWAY_WIDTH: 10.5,
         c.KEY_FOOTPATH: "Both",
         # 0 deg skew gives no end diaphragm forces (see NOTES.md)
-        c.KEY_SKEW_ANGLE: 10,
+        c.KEY_SKEW_ANGLE: skew,
     })
     prime_materials(inp)
     solve_extend_basic_input_dict(inp)
@@ -56,10 +56,10 @@ def prime_materials(inp):
     return app
 
 
-def run_design():
+def run_design(skew=10):
     from osdagbridge.core.bridge_types.plate_girder.plategirderbridge import PlateGirderBridge
     bridge = PlateGirderBridge()
-    bridge.set_input(sample_inputs())
+    bridge.set_input(sample_inputs(skew))
     bridge.design()
     return {"input": dict(bridge.input_dict), "output": dict(bridge.output_dict),
             "lc": getattr(bridge, "_lc_summary", None),
@@ -71,13 +71,14 @@ def main():
     ap.add_argument("--stem", default="Report")
     ap.add_argument("--out", default=str(ROOT / "reports_out"))
     ap.add_argument("--vehicles", help="comma list of: " + ", ".join(VEHICLES))
+    ap.add_argument("--skew", type=float, default=10)
     ap.add_argument("--fresh", action="store_true")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    cache = out / "report_input.pkl"
+    cache = out / f"report_input_skew{args.skew:g}.pkl"
     if args.fresh or not cache.exists():
-        cache.write_bytes(pickle.dumps(run_design()))
+        cache.write_bytes(pickle.dumps(run_design(args.skew)))
     data = pickle.loads(cache.read_bytes())
 
     from osdagbridge.core.bridge_types.plate_girder.plategirderbridge import PlateGirderBridge

@@ -4,6 +4,7 @@ Chapter files must not hardcode margins, fonts, colours, padding or table
 styles: they take them from here. Column specs are given as "C2.5 L8 C5"
 (alignment + relative weight) and always scale to the text width.
 """
+import math
 import re
 
 PAGE = {
@@ -12,7 +13,10 @@ PAGE = {
     # Two footer lines (software-default note + page number) fit in footskip.
     "headheight": "16pt", "headsep": "14pt", "footskip": "40pt",
     "includeheadfoot": True,
-    "section_needspace": 9, "table_needspace": 8,  # in baselineskips
+    # Space to reserve, in baselineskips: before a heading; caption + header +
+    # foot of a table; each row of its first unbreakable group; upper cap.
+    "section_needspace": 20, "table_needspace": 8, "row_needspace": 1.75,
+    "wrap_needspace": 1.1, "chars_per_line": 80, "max_needspace": 34,
 }
 
 FONTS = {
@@ -31,7 +35,7 @@ COLORS = {
 
 TABLE = {
     "arraystretch": "1.35", "tabcolsep": "4pt", "extrarowheight": "1pt",
-    "rule": "0.4pt", "pre": "8pt", "post": "10pt", "zebra": True,
+    "rule": "0.6pt", "pre": "8pt", "post": "10pt", "zebra": False,
     "continued": "continued", "continues": "Continued on next page",
 }
 
@@ -110,8 +114,7 @@ def apply_document_styles(doc, head_left="", head_right=""):
         + r"\setlength{\arrayrulewidth}{%s}" % TABLE["rule"] + "\n"
         + r"\setlength{\extrarowheight}{%s}" % TABLE["extrarowheight"] + "\n"
         + r"\setlength{\emergencystretch}{3em}" + "\n"
-        + r"\AddToHook{cmd/section/before}{\needspace{%d\baselineskip}}" % PAGE["section_needspace"] + "\n"
-        + r"\BeforeBeginEnvironment{longtable}{\needspace{%d\baselineskip}}" % PAGE["table_needspace"]
+        + r"\AddToHook{cmd/section/before}{\Needspace{%d\baselineskip}}" % PAGE["section_needspace"] + "\n"
         + r"""
 % No page break at a \cline, so multi-row groups stay together.
 \makeatletter
@@ -154,6 +157,22 @@ def _color_status(body):
     return re.sub(r"(?<=& )FAIL(?=\s*\\\\)", lambda m: r"\statusfail{FAIL}", body)
 
 
+def _first_group_lines(body, spec):
+    """Estimated height, in baselines, of the first unbreakable row group."""
+    weights = [float(c[1:]) for c in spec.split()]
+    height = 0.0
+    for row in body.split(r"\hline")[0].split(r"\\"):
+        if not re.sub(r"\*|\\cline\{[^}]*\}|\s", "", row):
+            continue
+        wraps = 1
+        for w, cell in zip(weights, re.split(r"(?<!\\)&", row)):
+            plain = re.sub(r"\\[A-Za-z]+\*?|[{}$]", "", cell).strip()
+            chars = max(1.0, PAGE["chars_per_line"] * w / sum(weights))
+            wraps = max(wraps, math.ceil(len(plain) / chars))
+        height += PAGE["row_needspace"] + PAGE["wrap_needspace"] * (wraps - 1)
+    return height
+
+
 def make_longtable(headers, rows, spec, units=None, caption=None, *, numbered=True,
                    head=None, font="table", zebra=None, label=None):
     """The one table helper: a longtable whose header repeats on every page.
@@ -188,7 +207,10 @@ def make_longtable(headers, rows, spec, units=None, caption=None, *, numbered=Tr
                  + (r"\label{%s}" % label if label else "") + r"\\" + "\n")
         name = (r"\tablename\ \thetable{} -- " if numbered else "")
         cont = r"\multicolumn{%d}{@{}l}{\textit{%s%s}}\\" % (n, name, TABLE["continued"]) + "\n"
-    lines = [r"\begingroup" + FONTS[font]]
+    # Reserve room for caption + header + first group, so the table never
+    # starts with an orphaned "continued" header.
+    need = min(PAGE["max_needspace"], PAGE["table_needspace"] + _first_group_lines(body, spec))
+    lines = [r"\par\begingroup" + FONTS[font], r"\Needspace{%.1f\baselineskip}" % need]
     if zebra:
         lines.append(r"\rowcolors{1}{}{osdagAltRow}")
     lines += [r"\begin{longtable}{%s}" % col_spec(spec),

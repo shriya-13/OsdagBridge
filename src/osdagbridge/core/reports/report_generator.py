@@ -194,9 +194,9 @@ def title_page(m, osdag_logo, org_logo):
 {""" + styles.FONTS["title"] + r""" \textbf{OsdagBridge}}\\[0.3cm]
 {""" + styles.FONTS["subtitle"] + r""" Open Source Software for Steel Girder Bridge Design}\\[1.5cm]
 {""" + styles.FONTS["heading"] + r""" Design Report}\\[1.5cm]
-\begin{tabular}{|L{4cm}|L{10cm}|}
-\hline
-\textbf{Project Name} & """ + _tex(m.project_name) + r""" \\
+""" + styles.make_longtable(
+    [r"Parameter", r"Value"],
+    (r"""\textbf{Project Name} & """ + _tex(m.project_name) + r""" \\
 \hline
 \textbf{Project Location} & """ + _tex(m.project_location) + r""" \\
 \hline
@@ -213,8 +213,8 @@ def title_page(m, osdag_logo, org_logo):
 \textbf{Date} & """ + _tex(m.report_date) + r""" \\
 \hline
 \textbf{Report Version} & """ + (_tex(m.subtitle) if m.subtitle else '') + r""" \\
-\hline
-\end{tabular}
+\hline"""),
+    'L4 L10') + r"""
 \end{titlepage}
 """
 
