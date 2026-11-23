@@ -118,6 +118,7 @@ from osdagbridge.core.utils.common import (
     KEY_TL_TEMP_RISE
 )
 
+from osdagbridge.core.reports import styles
 from osdagbridge.core.reports.report_utils import _tex
 from .executive_summary import executive_summary
 from .chap1 import ch1_project_info
@@ -138,7 +139,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # LaTeX template sections for OsdagBridge Design Report
 # Matches the LaTeX template used in the OsdagBridge desktop application.
-# Color: osdagGreen = #91B014
+# Colours and layout: see styles.py
 # =============================================================================
 
 
@@ -152,129 +153,8 @@ def preamble(project_name, job_number, report_date, report_version='Rev 0'):
     jn = _tex(job_number)
     rd = _tex(report_date)
     rv = _tex(report_version)
-    return r"""
-\documentclass[12pt,a4paper]{report}
-
-% Packages
-\usepackage[a4paper, margin=1in]{geometry}
-\usepackage{graphicx}
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{booktabs}
-\usepackage{array}
-\usepackage{tabularx}
-\usepackage{float}
-\usepackage{fancyhdr}
-\usepackage[hidelinks]{hyperref}
-\usepackage{xcolor}
-\usepackage{setspace}
-\usepackage{enumitem}
-\usepackage{caption}
-
-\captionsetup{
-    labelfont=bf,
-    justification=raggedright,
-    singlelinecheck=false,
-    format=plain
-}
-\usepackage{subcaption}
-\usepackage{multirow}
-\usepackage{colortbl}
-\usepackage{longtable}
-\setlength{\LTleft}{\fill}
-\setlength{\LTright}{\fill}
-\usepackage{titlesec}
-\usepackage{titletoc}
-\usepackage{lastpage}
-\usepackage{makecell}
-\usepackage{etoolbox}
-\usepackage{needspace}
-
-\numberwithin{table}{chapter}
-\numberwithin{figure}{chapter}
-% Table layout and spacing: consistent padding, row height, and longtable pre/post skips
-\setlength{\tabcolsep}{6pt}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\LTpre}{0pt}
-\setlength{\LTpost}{6pt}
-% Table rules (outline thickness) and small extra row height for clarity
-\setlength{\arrayrulewidth}{0.5pt}
-\setlength{\extrarowheight}{0.6pt}
-
-% Prevent tables from overflowing past the page bottom:
-% if fewer than 5 baseline-skips remain, break to the next page first.
-\BeforeBeginEnvironment{table}{\needspace{5\baselineskip}}
-\BeforeBeginEnvironment{longtable}{\needspace{5\baselineskip}}
-
-\definecolor{osdagGreen}{HTML}{91B014}
-
-\fancypagestyle{main}{
-  \fancyhf{}
-  \fancyhead[L]{""" + pn + r""" $|$ """ + jn + r"""}
-  \fancyhead[R]{""" + rd + r""" $|$ """ + rv + r"""}
-  \fancyfoot[L]{Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}
-  \fancyfoot[R]{Page \thepage\ of \pageref{LastPage}}
-  \renewcommand{\headrule}{\color{osdagGreen}\hrule width\headwidth height 1pt \vspace{2pt}}
-  \renewcommand{\footrule}{%
-    \ifbool{hasSDonPage}{%
-      \vspace{-20pt}%
-      \hbox to \headwidth{\textcolor{black}{\footnotesize\textit{* Software default value}}\hfil}%
-      \vspace{4pt}%
-    }{%
-      \vspace{-8pt}%
-    }%
-    \color{osdagGreen}\hrule width\headwidth height 1pt \vspace{6pt}%
-  }
-}
-\fancypagestyle{plain}{
-  \fancyhf{}
-  \fancyhead[L]{""" + pn + r""" $|$ """ + jn + r"""}
-  \fancyhead[R]{""" + rd + r""" $|$ """ + rv + r"""}
-  \fancyfoot[L]{Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}
-  \fancyfoot[R]{Page \thepage\ of \pageref{LastPage}}
-  \renewcommand{\headrule}{\color{osdagGreen}\hrule width\headwidth height 1pt \vspace{2pt}}
-  \renewcommand{\footrule}{%
-    \ifbool{hasSDonPage}{%
-      \vspace{-20pt}%
-      \hbox to \headwidth{\textcolor{black}{\footnotesize\textit{* Software default value}}\hfil}%
-      \vspace{4pt}%
-    }{%
-      \vspace{-8pt}%
-    }%
-    \color{osdagGreen}\hrule width\headwidth height 1pt \vspace{6pt}%
-  }
-}
-\fancypagestyle{firstpage}{
-  \fancyhf{}
-  \renewcommand{\headrulewidth}{0pt}
-  \fancyfoot[L]{Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}
-  \fancyfoot[R]{Page \thepage\ of \pageref{LastPage}}
-  \renewcommand{\footrule}{\vspace{-8pt}\color{osdagGreen}\hrule width\headwidth height 1pt \vspace{6pt}}
-}
-\pagestyle{main}
-\setstretch{1.15}
-
-% Custom Commands
-\newcommand{\placeholder}[1]{\textit{\textless #1\textgreater}}
-\newcommand{\todo}[1]{\colorbox{yellow}{TODO: #1}}
-\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
-\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
-\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
-
-% Software-default asterisk
-\newcommand{\sdstar}{\textsuperscript{*}}
-\newbool{hasSDonPage}
-\boolfalse{hasSDonPage}
-\newcommand{\markSD}{\global\booltrue{hasSDonPage}}
-\renewcommand{\sdstar}{\textsuperscript{*}\markSD{}}
-\AddToHook{shipout/before}{\global\boolfalse{hasSDonPage}}
-
-\title{\Large\textbf{OsdagBridge} \\ \normalsize Open Source Software for Steel Girder Bridge Design \\ \vspace{2cm} \large Design Report}
-\author{}
-\date{}
-
-\begin{document}
-"""
+    return "\n".join(styles.apply_document_styles(
+        [], head_left=pn + r" $|$ " + jn, head_right=rd + r" $|$ " + rv))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -293,12 +173,12 @@ def title_page(m, osdag_logo, org_logo):
         rhs = r''
 
     logos_tex = r"""\noindent
-\begin{minipage}[c]{0.6\textwidth}
+\begin{minipage}[c]{0.6\linewidth}
 \raggedright
 """ + lhs + r"""
 \end{minipage}%
 \hfill
-\begin{minipage}[c]{0.35\textwidth}
+\begin{minipage}[c]{0.35\linewidth}
 \raggedleft
 """ + rhs + r"""
 \end{minipage}
@@ -311,12 +191,12 @@ def title_page(m, osdag_logo, org_logo):
 \centering
 \vspace*{1.5cm}
 """ + logos_tex + r"""
-{\Huge \textbf{OsdagBridge}}\\[0.3cm]
-{\large Open Source Software for Steel Girder Bridge Design}\\[1.5cm]
-{\Large Design Report}\\[1.5cm]
-\begin{tabular}{|L{4cm}|L{10cm}|}
-\hline
-\textbf{Project Name} & """ + _tex(m.project_name) + r""" \\
+{""" + styles.FONTS["title"] + r""" \textbf{OsdagBridge}}\\[0.3cm]
+{""" + styles.FONTS["subtitle"] + r""" Open Source Software for Steel Girder Bridge Design}\\[1.5cm]
+{""" + styles.FONTS["heading"] + r""" Design Report}\\[1.5cm]
+""" + styles.make_longtable(
+    [r"Parameter", r"Value"],
+    (r"""\textbf{Project Name} & """ + _tex(m.project_name) + r""" \\
 \hline
 \textbf{Project Location} & """ + _tex(m.project_location) + r""" \\
 \hline
@@ -333,8 +213,8 @@ def title_page(m, osdag_logo, org_logo):
 \textbf{Date} & """ + _tex(m.report_date) + r""" \\
 \hline
 \textbf{Report Version} & """ + (_tex(m.subtitle) if m.subtitle else '') + r""" \\
-\hline
-\end{tabular}
+\hline"""),
+    'L4 L10') + r"""
 \end{titlepage}
 """
 
@@ -346,10 +226,7 @@ def title_page(m, osdag_logo, org_logo):
 def toc_section():
     return r"""
 % Chapter / TOC Formatting
-\titleformat{\chapter}[block]
-  {\normalfont\Large\bfseries\centering}{\thechapter}{1em}{}
-\titlespacing*{\chapter}{0pt}{0pt}{10pt}
-\setcounter{tocdepth}{2}
+""" + styles.chapter_format() + r"""\setcounter{tocdepth}{2}
 
 % TOC styling using titletoc
 \titlecontents{chapter}[1.5em]
@@ -593,8 +470,8 @@ class ReportDataBridge:
             if val is not None:
                 ur = float(val)
                 if ur <= 1.0:
-                    return r"\textcolor{black}{PASS}"
-                return r"\textcolor{red}{FAIL}"
+                    return r"\statuspass{PASS}"
+                return r"\statusfail{FAIL}"
         except (TypeError, ValueError):
             pass
         return ""
@@ -632,6 +509,58 @@ class ReportDataBridge:
             return f"{self.get_cb_geometry().get('alpha_deg', 0):.2f}"
         except Exception:
             return ""
+
+    # --- Source-specific details (overridden for end diaphragms) ---
+
+    def get_effective_length(self, pair: str, member: str) -> str:
+        return self.get_cb_effective_length(member)
+
+    def chord_enabled(self, pair: str, which: str) -> bool:
+        return bool(self.output_dict.get(
+            f"member_properties.cross_bracing_details.{which}_chord", True))
+
+    def section_property(self, pair: str, member: str, name: str):
+        pid = pair.replace("-", "")
+        base = "transverse_member_design.cb.section_properties"
+        groups = ("bracing",) if member == "diagonal" else ("bottom_chord", "top_chord")
+        for grp in groups:
+            val = self.output_dict.get(f"{base}.{grp}.{pid}.{name}")
+            if val is not None:
+                return val
+        return None
+
+
+class EndDiaphragmDataBridge(ReportDataBridge):
+    """Same getters as cross bracing, reading the end diaphragm results."""
+
+    def _cb_forces_dict(self) -> dict:
+        return self.output_dict.get("end_diaphragm_forces_dict") or {}
+
+    def _cb_pair_designs(self) -> dict:
+        return self.output_dict.get("end_diaphragm_design_results") or {}
+
+    def get_effective_length(self, pair: str, member: str) -> str:
+        try:
+            raw = self._cb_pair_designs()[pair][member]["compression"]
+            return f"{float(raw['KEY_EFFECTIVE_LENGTH']):.0f}"
+        except (KeyError, TypeError, ValueError):
+            return ""
+
+    def chord_enabled(self, pair: str, which: str) -> bool:
+        pid = pair.replace("-", "")
+        return bool(self.output_dict.get(
+            f"member_properties.end_diaphragm_details.{pid}.{which}_chord", True))
+
+    def section_property(self, pair: str, member: str, name: str):
+        pid = pair.replace("-", "")
+        base = "transverse_member_design.ed.section_properties"
+        groups = ("end_diaphragm",) if member == "diagonal" else ("bottom_chord", "top_chord")
+        for grp in groups:
+            val = self.output_dict.get(f"{base}.{grp}.{pid}.{name}")
+            if val is not None:
+                return val
+        return None
+
 
 def _format_project_location(pl_data):
     if not pl_data:
@@ -899,6 +828,10 @@ def generate_report(payload, request):
             quantities = calculate_material_quantities(payload.inputs, payload.output_dict)
             payload.inputs.update(quantities)
 
+            # Charts live in tmp_dir, so they exist until compilation ends
+            chart_dir = os.path.join(tmp_dir, 'charts')
+            os.makedirs(chart_dir, exist_ok=True)
+
             # ── Assemble LaTeX document (fig_paths now has tmp_dir paths) ──
             bridge = ReportDataBridge(payload.output_dict, payload.inputs, payload)
             span_m = float(payload.inputs.get(KEY_SPAN, 0) or 0)
@@ -920,15 +853,18 @@ def generate_report(payload, request):
             doc_parts.append(ch2_input_parameters(payload.metadata, payload.inputs, payload.output_dict))
 
             if 'loads' in secs:
-                doc_parts.append(ch3_loads(payload.inputs))
+                doc_parts.append(ch3_loads(payload.inputs, payload.output_dict))
             if 'analysis' in secs:
                 doc_parts.append(ch4_analysis(payload.analysis_summary, fig_paths, bridge, span_m))
             if 'design_checks' in secs:
-                doc_parts.append(ch5_design_checks(payload.design_checks, bridge))
+                doc_parts.append(ch5_design_checks(
+                    payload.design_checks, bridge,
+                    EndDiaphragmDataBridge(payload.output_dict, payload.inputs, payload),
+                    chart_dir))
             if 'drawings' in secs and payload.options.include_figures:
                 doc_parts.append(ch6_drawings(fig_paths))
 
-            doc_parts.append(ch7_quantities(payload.inputs))
+            doc_parts.append(ch7_quantities(payload.inputs, chart_dir))
 
             mode = str(payload.inputs.get(KEY_DESIGN_MODE, "Optimized")).strip().lower()
             is_custom = mode in {"custom", "customized"}
@@ -953,8 +889,8 @@ def generate_report(payload, request):
             with open(tmp_tex, 'w', encoding='utf-8') as f:
                 f.write(full_tex)
 
-            # Compile twice for TOC and references
-            for _ in range(2):
+            # Three passes: TOC, references and longtable widths
+            for _ in range(3):
                 try:
                     kwargs = {
                         'cwd': tmp_dir,
