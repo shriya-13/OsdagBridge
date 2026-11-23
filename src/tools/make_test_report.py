@@ -1,6 +1,6 @@
 """Headless report harness: design a sample bridge, then compile the report.
 
-    python src/tools/make_test_report.py [--stem NAME] [--vehicles a,b] [--out DIR] [--skew DEG] [--fresh]
+    python src/tools/make_test_report.py [--stem NAME] [--carriageway M] [--out DIR] [--skew DEG] [--fresh]
 
 Mirrors the GUI path (defaults -> set_input -> design -> generate_design_report).
 The design result is cached as a pickle in the output directory; --fresh reruns
@@ -12,13 +12,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-
-VEHICLES = {
-    "class_a": "KEY_LL_IRC_CLASS_A", "70r_wheeled": "KEY_LL_IRC_70R_WHEELED",
-    "70r_tracked": "KEY_LL_IRC_70R_TRACKED", "70r_bogie": "KEY_LL_IRC_70R_BOGIE",
-    "aa_wheeled": "KEY_LL_IRC_AA_WHEELED", "aa_tracked": "KEY_LL_IRC_AA_TRACKED",
-    "sv": "KEY_LL_IRC_CLASS_SV", "fatigue": "KEY_LL_IRC_CLASS_FATIGUE",
-}
 
 
 def sample_inputs(skew=10):
@@ -32,7 +25,7 @@ def sample_inputs(skew=10):
             "weather_data": {"zone": "III", "wind_speed": 44,
                              "max_temp": 45, "min_temp": 5}},
         c.KEY_SPAN: 30, c.KEY_CARRIAGEWAY_WIDTH: 10.5,
-        c.KEY_FOOTPATH: "Both",
+        c.KEY_FOOTPATH: "Both Sides",
         # 0 deg skew gives no end diaphragm forces (see NOTES.md)
         c.KEY_SKEW_ANGLE: skew,
     })
@@ -70,7 +63,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stem", default="Report")
     ap.add_argument("--out", default=str(ROOT / "reports_out"))
-    ap.add_argument("--vehicles", help="comma list of: " + ", ".join(VEHICLES))
+    ap.add_argument("--carriageway", type=float)
     ap.add_argument("--skew", type=float, default=10)
     ap.add_argument("--fresh", action="store_true")
     args = ap.parse_args()
@@ -84,13 +77,8 @@ def main():
     from osdagbridge.core.bridge_types.plate_girder.plategirderbridge import PlateGirderBridge
     from osdagbridge.core.reports import ReportMetadata, ReportOptions, ReportRequest
     from osdagbridge.core.utils import common as c
-    if args.vehicles is not None:
-        chosen = {v for v in args.vehicles.split(",") if v}
-        if chosen - set(VEHICLES):
-            ap.error(f"unknown vehicles: {sorted(chosen - set(VEHICLES))}")
-        for name, key in VEHICLES.items():
-            data["input"][getattr(c, key)] = name in chosen
-
+    if args.carriageway:  # exercise Table 6A vehicle listing without a redesign
+        data["input"][c.KEY_CARRIAGEWAY_WIDTH] = args.carriageway
     bridge = PlateGirderBridge()
     bridge.input_dict, bridge.output_dict = data["input"], data["output"]
     bridge._lc_summary, bridge._reaction_summary = data["lc"], data["rxn"]
